@@ -55,6 +55,12 @@ public class CircleImageView extends ImageView {
     private boolean mSetupPending;
     private boolean mBorderOverlay;
 
+    private int mPaddingTop;
+    private int mPaddingLeft;
+    private int mPaddingRight;
+    private int mPaddingBottom;
+    private float mPadding;
+
     public CircleImageView(Context context) {
         super(context);
 
@@ -109,15 +115,31 @@ public class CircleImageView extends ImageView {
     }
 
     @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        super.onLayout(changed, left, top, right, bottom);
+        mPaddingTop = getPaddingTop();
+        mPaddingLeft = getPaddingLeft();
+        mPaddingRight = getPaddingRight();
+        mPaddingBottom = getPaddingBottom();
+
+        mPadding = Math.max(Math.max(mPaddingLeft, mPaddingRight), Math.max(mPaddingTop, mPaddingBottom));
+
+    }
+
+    @Override
     protected void onDraw(Canvas canvas) {
         if (getDrawable() == null) {
             return;
         }
 
+        canvas.save();
+        canvas.scale(1 - (mPadding) / getWidth(), 1 - (mPadding) / getHeight(), getWidth() / 2, getHeight() / 2);
+
         canvas.drawCircle(getWidth() / 2, getHeight() / 2, mDrawableRadius, mBitmapPaint);
         if (mBorderWidth != 0) {
             canvas.drawCircle(getWidth() / 2, getHeight() / 2, mBorderRadius, mBorderPaint);
         }
+        canvas.restore();
     }
 
     @Override
