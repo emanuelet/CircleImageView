@@ -1,5 +1,6 @@
 package de.hdodenhof.circleimageview;
 
+import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
@@ -9,17 +10,32 @@ import android.graphics.Color;
 import android.graphics.ColorFilter;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 import android.support.annotation.ColorRes;
 import android.support.annotation.DrawableRes;
+import android.support.design.widget.AppBarLayout;
+import android.support.design.widget.CoordinatorLayout;
+import android.support.design.widget.Snackbar;
+import android.support.v4.content.ContextCompat;
+import android.support.v4.view.ViewCompat;
+import android.support.v4.view.ViewPropertyAnimatorListener;
+import android.support.v4.view.animation.FastOutSlowInInterpolator;
 import android.util.AttributeSet;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.ImageView;
 
+import java.util.List;
+
+@CoordinatorLayout.DefaultBehavior(CircleImageView.Behavior.class)
 public class CircleImageView extends ImageView {
 
     private static final ScaleType SCALE_TYPE = ScaleType.CENTER_CROP;
@@ -61,6 +77,8 @@ public class CircleImageView extends ImageView {
     private int mPaddingBottom;
     private float mPadding;
 
+    private Rect mShadowPadding;
+
     public CircleImageView(Context context) {
         super(context);
 
@@ -73,6 +91,9 @@ public class CircleImageView extends ImageView {
 
     public CircleImageView(Context context, AttributeSet attrs, int defStyle) {
         super(context, attrs, defStyle);
+
+        this.mShadowPadding = new Rect();
+
 
         TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.CircleImageView, defStyle, 0);
 
@@ -123,7 +144,7 @@ public class CircleImageView extends ImageView {
         mPaddingBottom = getPaddingBottom();
 
         mPadding = Math.max(Math.max(mPaddingLeft, mPaddingRight), Math.max(mPaddingTop, mPaddingBottom));
-
+        this.mShadowPadding.set(left, top, right, bottom);
     }
 
     @Override
@@ -163,7 +184,7 @@ public class CircleImageView extends ImageView {
     }
 
     public void setBorderColorResource(@ColorRes int borderColorRes) {
-        setBorderColor(getContext().getResources().getColor(borderColorRes));
+        setBorderColor(ContextCompat.getColor(getContext(), borderColorRes));
     }
 
     public int getBorderWidth() {
@@ -315,4 +336,173 @@ public class CircleImageView extends ImageView {
         mBitmapShader.setLocalMatrix(mShaderMatrix);
     }
 
+    public static class Behavior extends android.support.design.widget.CoordinatorLayout.Behavior<CircleImageView> {
+        private static final boolean SNACKBAR_BEHAVIOR_ENABLED;
+        private Rect mTmpRect;
+        private static final ThreadLocal<Matrix> sMatrix = new ThreadLocal();
+        private static final ThreadLocal<RectF> sRectF = new ThreadLocal();
+        private static final Matrix IDENTITY = new Matrix();
+
+        public Behavior() {
+        }
+
+        public boolean layoutDependsOn(CoordinatorLayout parent, CircleImageView child, View dependency) {
+            return SNACKBAR_BEHAVIOR_ENABLED && dependency instanceof Snackbar.SnackbarLayout;
+        }
+
+        public boolean onDependentViewChanged(CoordinatorLayout parent, CircleImageView child, View dependency) {
+            if (dependency instanceof AppBarLayout) {
+                this.updateFabVisibility(parent, (AppBarLayout) dependency, child);
+            }
+
+            return false;
+        }
+
+        public void onDependentViewRemoved(CoordinatorLayout parent, CircleImageView child, View dependency) {
+            if (dependency instanceof Snackbar.SnackbarLayout && ViewCompat.getTranslationY(child) != 0.0F) {
+                ViewCompat.animate(child).translationY(0.0F).scaleX(1.0F).scaleY(1.0F).alpha(1.0F).setInterpolator(new FastOutSlowInInterpolator()).setListener((ViewPropertyAnimatorListener) null);
+            }
+
+        }
+
+        private boolean updateFabVisibility(CoordinatorLayout parent, AppBarLayout appBarLayout, CircleImageView child) {
+            CoordinatorLayout.LayoutParams lp = (CoordinatorLayout.LayoutParams) child.getLayoutParams();
+            if (lp.getAnchorId() != appBarLayout.getId()) {
+                return false;
+            } else {
+                if (this.mTmpRect == null) {
+                    this.mTmpRect = new Rect();
+                }
+
+                Rect rect = this.mTmpRect;
+
+                getDescendantRect(parent, appBarLayout, rect);
+                if (rect.bottom <= getMinimumHeightForVisibleOverlappingContent(appBarLayout)) {
+                    child.setVisibility(GONE);
+                } else {
+                    child.setVisibility(VISIBLE);
+                }
+
+                return true;
+            }
+        }
+
+        private void getDescendantRect(ViewGroup parent, View descendant, Rect out) {
+            out.set(0, 0, descendant.getWidth(), descendant.getHeight());
+            offsetDescendantRect(parent, descendant, out);
+        }
+
+        @TargetApi(Build.VERSION_CODES.KITKAT_WATCH)
+        private int getMinimumHeightForVisibleOverlappingContent(AppBarLayout appBarLayout) {
+            int topInset = appBarLayout.getRootWindowInsets() != null ? appBarLayout.getRootWindowInsets().getSystemWindowInsetTop() : 0;
+            int minHeight = ViewCompat.getMinimumHeight(appBarLayout);
+            if (minHeight != 0) {
+                return minHeight * 2 + topInset;
+            } else {
+                int childCount = appBarLayout.getChildCount();
+                return childCount >= 1 ? ViewCompat.getMinimumHeight(appBarLayout.getChildAt(childCount - 1)) * 2 + topInset : 0;
+            }
+        }
+
+        public static void offsetDescendantRect(ViewGroup group, View child, Rect rect) {
+            Matrix m = (Matrix) sMatrix.get();
+            if (m == null) {
+                m = new Matrix();
+                sMatrix.set(m);
+            } else {
+                m.set(IDENTITY);
+            }
+
+            offsetDescendantMatrix(group, child, m);
+            RectF rectF = (RectF) sRectF.get();
+            if (rectF == null) {
+                rectF = new RectF();
+            }
+
+            rectF.set(rect);
+            m.mapRect(rectF);
+            rect.set((int) (rectF.left + 0.5F), (int) (rectF.top + 0.5F), (int) (rectF.right + 0.5F), (int) (rectF.bottom + 0.5F));
+        }
+
+        static void offsetDescendantMatrix(ViewParent target, View view, Matrix m) {
+            ViewParent parent = view.getParent();
+            if (parent instanceof View && parent != target) {
+                View vp = (View) parent;
+                offsetDescendantMatrix(target, vp, m);
+                m.preTranslate((float) (-vp.getScrollX()), (float) (-vp.getScrollY()));
+            }
+
+            m.preTranslate((float) view.getLeft(), (float) view.getTop());
+            if (!view.getMatrix().isIdentity()) {
+                m.preConcat(view.getMatrix());
+            }
+
+        }
+
+        private void updateFabTranslationForSnackbar(CoordinatorLayout parent, CircleImageView fab, View snackbar) {
+            if (fab.getVisibility() == VISIBLE) {
+                float translationY = this.getFabTranslationYForSnackbar(parent, fab);
+                ViewCompat.setTranslationY(fab, translationY);
+            }
+        }
+
+        private float getFabTranslationYForSnackbar(CoordinatorLayout parent, CircleImageView fab) {
+            float minOffset = 0.0F;
+            List dependencies = parent.getDependencies(fab);
+            int i = 0;
+
+            for (int z = dependencies.size(); i < z; ++i) {
+                View view = (View) dependencies.get(i);
+                if (view instanceof Snackbar.SnackbarLayout && parent.doViewsOverlap(fab, view)) {
+                    minOffset = Math.min(minOffset, ViewCompat.getTranslationY(view) - (float) view.getHeight());
+                }
+            }
+
+            return minOffset;
+        }
+
+        public boolean onLayoutChild(CoordinatorLayout parent, CircleImageView child, int layoutDirection) {
+            List dependencies = parent.getDependencies(child);
+            int i = 0;
+
+            for (int count = dependencies.size(); i < count; ++i) {
+                View dependency = (View) dependencies.get(i);
+                if (dependency instanceof AppBarLayout && this.updateFabVisibility(parent, (AppBarLayout) dependency, child)) {
+                    break;
+                }
+            }
+
+            parent.onLayoutChild(child, layoutDirection);
+            this.offsetIfNeeded(parent, child);
+            return true;
+        }
+
+        private void offsetIfNeeded(CoordinatorLayout parent, CircleImageView fab) {
+            Rect padding = fab.mShadowPadding;
+            if (padding != null && padding.centerX() > 0 && padding.centerY() > 0) {
+                CoordinatorLayout.LayoutParams lp = (CoordinatorLayout.LayoutParams) fab.getLayoutParams();
+                int offsetTB = 0;
+                int offsetLR = 0;
+                if (fab.getRight() >= parent.getWidth() - lp.rightMargin) {
+                    offsetLR = padding.right;
+                } else if (fab.getLeft() <= lp.leftMargin) {
+                    offsetLR = -padding.left;
+                }
+
+                if (fab.getBottom() >= parent.getBottom() - lp.bottomMargin) {
+                    offsetTB = padding.bottom;
+                } else if (fab.getTop() <= lp.topMargin) {
+                    offsetTB = -padding.top;
+                }
+
+                fab.offsetTopAndBottom(offsetTB);
+                fab.offsetLeftAndRight(offsetLR);
+            }
+
+        }
+
+        static {
+            SNACKBAR_BEHAVIOR_ENABLED = Build.VERSION.SDK_INT >= 11;
+        }
+    }
 }
