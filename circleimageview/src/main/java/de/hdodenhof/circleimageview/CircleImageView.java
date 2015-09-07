@@ -394,7 +394,7 @@ public class CircleImageView extends ImageView {
 
         @TargetApi(Build.VERSION_CODES.KITKAT_WATCH)
         private int getMinimumHeightForVisibleOverlappingContent(AppBarLayout appBarLayout) {
-            int topInset = appBarLayout.getRootWindowInsets() != null ? appBarLayout.getRootWindowInsets().getSystemWindowInsetTop() : 0;
+            int topInset = 24;
             int minHeight = ViewCompat.getMinimumHeight(appBarLayout);
             if (minHeight != 0) {
                 return minHeight * 2 + topInset;
